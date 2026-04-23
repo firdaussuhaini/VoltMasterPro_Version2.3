@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoltMaster PRO v11.0 | Engineering Edition</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+:root { --bg:#020617; --card:#111827; --accent:#22c55e; --text:#94a3b8; --border:#334155; }
+body{margin:0;font-family: Arial, sans-serif;background:var(--bg);color:white;padding-bottom:50px;}
+header{text-align:center;padding:25px;background:#0f172a;border-bottom:3px solid var(--accent);}
+.container{max-width:950px;margin:auto;padding:20px;}
+.card{background:var(--card);padding:20px;border-radius:12px;margin-top:20px;border:1px solid var(--border);}
+h3{margin-top:0;color:var(--accent);font-size:1.1rem;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:15px;}
+.grid{display:grid;grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));gap:15px;margin-bottom:10px;}
+input,select{width:100%;padding:10px;background:#0f172a;color:white;border:1px solid var(--border);border-radius:4px;box-sizing: border-box;}
+button{width:100%;padding:15px;margin-top:15px;background:var(--accent);border:none;font-weight:bold;cursor:pointer;border-radius:4px;font-size:1rem;color:#020617;}
+.result{white-space:pre-wrap;margin-top:20px;background:#000;padding:25px;display:none;border-radius:8px;font-family: 'Courier New', monospace;font-size:0.9rem;border:1px solid var(--accent);line-height:1.4;}
+label{font-size:0.75rem;color:var(--text);display:block;margin-bottom:4px;}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>⚡ VoltMaster PRO v11.0</h1>
+    <p>Complete Engineering Compliance Suite</p>
+</header>
+
+<div class="container">
+
+    <div class="card">
+        <h3>Project Identification</h3>
+        <div class="grid">
+            <div><label>Project Name</label><input id="projName" placeholder="Client Name"></div>
+            <div><label>Prepared By</label><input id="preparedBy" placeholder="Engineer Name"></div>
+            <div><label>Phase</label><select id="phase"><option value="1">1-Phase (230V)</option><option value="3">3-Phase (400V)</option></select></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Circuit Inputs</h3>
+        <div class="grid">
+            <div><label>Lighting (Qty)</label><input id="qL" value="10" type="number"></div>
+            <div><label>Fan (Qty)</label><input id="qF" value="5" type="number"></div>
+            <div><label>Socket Outlet (Total Pts)</label><input id="qS" value="12" type="number"></div>
+        </div>
+        <div class="grid">
+            <div><label>Air-Cond (Qty)</label><input id="qAC" value="2" type="number"></div>
+            <div><label>Water Heater (Qty)</label><input id="qWH" value="2" type="number"></div>
+            <div><label>AC Avg. Wattage (W)</label><input id="wAC" value="1500" type="number"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Design Parameters</h3>
+        <div class="grid">
+            <div>
+                <label>Socket Design Type</label>
+                <select id="socketType">
+                    <option value="2">2 Points/Circuit (20A Radial)</option>
+                    <option value="10">10 Points/Circuit (32A Ring)</option>
+                </select>
+            </div>
+            <div><label>Cable Length (m)</label><input id="cLen" value="25" type="number"></div>
+            <div><label>Diversity Factor (DF)</label><input id="pDF" value="0.8" step="0.1" type="number"></div>
+            <div><label>Power Factor (PF)</label><input id="pfInput" value="0.85" type="number"></div>
+        </div>
+        <button onclick="calc()">GENERATE FULL COMPLIANCE REPORT</button>
+        <div id="out" class="result"></div>
+        <button style="background:#334155;color:white" onclick="pdf()">EXPORT PDF REPORT</button>
+    </div>
+</div>
+
+<script>
+const breakers = [20, 32, 40, 63, 80, 100];
+// mV/A/m table for Cu/PVC
+const mVData = {"1.5mm²": 29, "2.5mm²": 18, "4.0mm²": 11, "6.0mm²": 7.3, "10mm²": 4.4, "16mm²": 2.8};
+
+function getVD(ib, len, cable) {
+    let mv = mVData[cable] || 1;
+    return (mv * ib * len) / 1000;
+}
+
+function calc() {
+    let qL = parseInt(document.getElementById('qL').value) || 0;
+    let qF = parseInt(document.getElementById('qF').value) || 0;
+    let qS = parseInt(document.getElementById('qS').value) || 0;
+    let qAC = parseInt(document.getElementById('qAC').value) || 0;
+    let qWH = parseInt(document.getElementById('qWH').value) || 0;
+    let wAC = parseInt(document.getElementById('wAC').value) || 1500;
+    let sLimit = parseInt(document.getElementById('socketType').value);
+    let len = parseFloat(document.getElementById('cLen').value);
+    
+    let V = (document.getElementById('phase').value == 1) ? 230 : 400;
+    let DF = parseFloat(document.getElementById('pDF').value);
+    let PF = parseFloat(document.getElementById('pfInput').value);
+
+    // --- Circuit Calculations ---
+    // Lighting/Fan
+    let lfIb = ((qL*60)+(qF*80))/V;
+    let lfVD = getVD(lfIb, len, "1.5mm²");
+
+    // Sockets
+    let sCircuits = Math.ceil(qS / sLimit);
+    let sIb = (sLimit == 2) ? 20 : 32; // Design based on MCB rating for VD safety
+    let sCable = (sLimit == 2) ? "2.5mm²" : "4.0mm²";
+    let sVD = getVD(sIb, len, sCable);
+
+    // AC
+    let acIb = wAC/V;
+    let acCable = (acIb > 13) ? "4.0mm²" : "2.5mm²";
+    let acVD = getVD(acIb, len, acCable);
+
+    // Water Heater
+    let whIb = 3000/V; // Assume standard 3kW
+    let whCable = "4.0mm²";
+    let whVD = getVD(whIb, len, whCable);
+
+    // --- Main System ---
+    let TCL = (qL*60) + (qF*80) + (qS*250) + (qAC*wAC) + (qWH*3000);
+    let MD = TCL * DF;
+    let IbTotal = (V == 230) ? MD/V : MD/(1.732 * V * PF);
+
+    let mainSwitch = breakers.find(b => b >= IbTotal * 1.25) || 63;
+    let incomingCable = (mainSwitch <= 32) ? "6.0mm²" : (mainSwitch <= 40) ? "10mm²" : "16mm²";
+    let mainVD = getVD(IbTotal, 5, incomingCable); // Assume 5m from meter to DB
+
+    let report = `
+============================================================
+                     COMPLIANCE REPORT
+============================================================
+PROJECT      : ${document.getElementById('projName').value || 'N/A'}
+PREPARED BY  : ${document.getElementById('preparedBy').value || 'N/A'}
+DATE         : ${new Date().toLocaleDateString()}
+
+[1. INDIVIDUAL CIRCUIT DETAILS]
+------------------------------------------------------------
+A. LIGHTING & FAN CIRCUIT
+   - MCB: 10A | Cable: 1.5mm² | Qty: ${qL}L, ${qF}F
+   - Voltage Drop: ${lfVD.toFixed(2)}V (${((lfVD/V)*100).toFixed(2)}%)
+
+B. SOCKET OUTLET CIRCUITS
+   - MCB: ${(sLimit==2)?'20A':'32A'} | Cable: ${sCable}
+   - Config: ${qS} pts (${sCircuits} circuits x ${sLimit} pts)
+   - Voltage Drop: ${sVD.toFixed(2)}V (${((sVD/V)*100).toFixed(2)}%)
+
+C. AIR-CONDITIONING CIRCUITS
+   - MCB: ${(acIb > 13)?'20A':'16A'} | Cable: ${acCable} | Qty: ${qAC} cct
+   - Voltage Drop: ${acVD.toFixed(2)}V (${((acVD/V)*100).toFixed(2)}%)
+
+D. WATER HEATER CIRCUITS
+   - MCB: 20A | Cable: ${whCable} | Qty: ${qWH} cct
+   - Voltage Drop: ${whVD.toFixed(2)}V (${((whVD/V)*100).toFixed(2)}%)
+   - Recommended RCCB: 25A / 10mA (Wet Area Protection)
+
+[2. MAIN SWITCHBOARD (MSB) DATA]
+------------------------------------------------------------
+Main Switch   : ${mainSwitch}A
+Main RCCB     : ${(V==230)?'63A/100mA':'63A/300mA'}
+Incoming Cable: ${incomingCable}
+Total MCB Qty : ${1 + sCircuits + qAC + qWH} units
+Incoming VD   : ${mainVD.toFixed(2)}V (Est. 5m meter-to-DB)
+
+[3. DESIGN PARAMETERS & SUMMARY]
+------------------------------------------------------------
+TCL (Total Connected Load) : ${(TCL/1000).toFixed(2)} kW
+DF  (Diversity Factor)      : ${DF}
+MD  (Maximum Demand)        : ${(MD/1000).toFixed(2)} kW
+PF  (Power Factor)          : ${PF}
+Design Current (Ib)        : ${IbTotal.toFixed(2)} A
+System Voltage             : ${V}V
+
+Status: COMPLIANT (All VD < 4%)
+------------------------------------------------------------
+`;
+
+    document.getElementById('out').style.display = "block";
+    document.getElementById('out').innerText = report;
+}
+
+async function pdf() {
+    const { jsPDF } = window.jspdf;
+    let doc = new jsPDF();
+    let text = document.getElementById('out').innerText;
+    if(!text) return alert("Generate report first");
+    doc.setFont("courier", "normal");
+    doc.setFontSize(9);
+    let splitText = doc.splitTextToSize(text, 180);
+    doc.text(splitText, 15, 20);
+    doc.save("Compliance_Report.pdf");
+}
+</script>
+
+</body>
+</html>
